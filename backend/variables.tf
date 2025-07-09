@@ -9,3 +9,15 @@ variable "region" {
   description = "AWS region to deploy infrastructure"
   default     = "ap-south-1"
 }
+
+variable "repo_name" {
+  description = "The GitHub repository in the format OWNER/REPOSITORY"
+  type        = string
+  default     = "ManiTWIndia/iac-milestone"
+}
+
+variable "env" {
+  description = "Environment"
+  type        = string
+  default     = "dev"
+}
