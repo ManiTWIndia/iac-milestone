@@ -130,6 +130,8 @@ To clean up all resources and avoid incurring AWS charges:
 2. **Destroy the Infrastructure**
    ```bash
    terraform destroy
+   cd backend
+   terraform destroy
    ```
    - Review the plan and type `yes` to confirm.
 
