@@ -68,6 +68,8 @@ resource "aws_iam_policy" "github_actions_policy" {
           "iam:ListPolicies",
           "iam:ListRolePolicies",
           "iam:ListAttachedRolePolicies",
+          "iam:ListPolicyVersions",
+          "iam:ListInstanceProfilesForRole",
           "iam:GetRole",
           "iam:GetPolicy",
           "iam:GetPolicyVersion",
