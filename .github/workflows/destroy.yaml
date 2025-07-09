@@ -1,0 +1,48 @@
+name: Destroy Infra
+
+on:
+  workflow_dispatch
+
+env:
+  AWS_REGION: ap-south-1 
+  IAM_ROLE: arn:aws:iam::160071257600:role/mani-iac-lab-github-actions-role
+
+  TF_VAR_user_prefix: "mani-iac-milestone"
+  TF_VAR_environment: "dev"
+
+jobs:
+  destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write 
+      contents: read  
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4 
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4 
+        with:
+          role-session-name: GitHubActionsSession
+          role-to-assume: ${{ env.IAM_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+
+      - name: Terraform Init (Configure Remote State)
+        id: init
+        run: terraform init \
+          -backend-config="bucket=${{ env.TF_VAR_user_prefix }}-tf-state-${{ secrets.AWS_ACCOUNT_ID }}" \
+          -backend-config="key=mani-iac-milestone/terraform.tfstate" \
+          -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -auto-approve -var-file="dev.tfvars"
+        timeout-minutes: 30 
+        env:
+          TF_COMMAND_OPTIONS: "-lock-timeout=300s"

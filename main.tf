@@ -1,3 +1,5 @@
+# main.tf
+
 terraform {
   required_providers {
     aws = {
@@ -5,117 +7,92 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  backend "s3" {
+    bucket  = "mani-iac-milestone-tfstate"
+    key     = "terraform.tfstate"
+    region  = "ap-south-1"
+    encrypt = true
+  }
 }
 
 provider "aws" {
   region = var.aws_region
 }
 
-data "archive_file" "hello_world_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/src/hello_world"
-  output_path = "${path.module}/hello_world.zip"
+module "dynamodb" {
+  source = "./modules/dynamodb"
+
+  table_name_prefix = var.user_prefix
+  environment       = var.environment
 }
 
-resource "aws_cloudwatch_log_group" "hello_world_lambda_logs" {
-  name              = "/aws/lambda/${var.user_prefix}-hello-world"
-  retention_in_days = 7 # Automatically delete old logs
+module "s3_website" {
+  source = "./modules/s3_website"
+
+  bucket_name_prefix = var.user_prefix
+  aws_region         = var.aws_region
+  environment        = var.environment
 }
 
-resource "aws_iam_role" "hello_world_lambda_role" {
-  name = "${var.user_prefix}-hello-world-lambda-role"
+module "lambda" {
+  source = "./modules/lambda"
 
-  # Policy that allows this role to be assumed by the Lambda service.
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole",
-        Effect = "Allow",
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
+  prefix      = var.user_prefix
+  environment = var.environment
+  aws_region  = var.aws_region
+  account_id  = data.aws_caller_identity.current.account_id
+
+  enable_dynamodb_access = true
+  dynamodb_table_arn     = module.dynamodb.table_arn
+
+  enable_s3_access = true
+  s3_bucket_arn    = module.s3_website.bucket_arn
+
+  lambda_configs = {
+    register_user = {
+      source_dir = "register_user_lambda"
+      env_vars = {
+        DYNAMODB_TABLE_NAME = module.dynamodb.table_name
       }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "lambda_logging_policy" {
-  name        = "${var.user_prefix}-lambda-logging-policy"
-  description = "IAM policy for logging from the hello-world lambda"
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ],
-        Effect = "Allow",
-        # Important: Restrict this permission to our specific log group.
-        Resource = "${aws_cloudwatch_log_group.hello_world_lambda_logs.arn}:*"
+    },
+    verify_user = {
+      source_dir = "verify_user_lambda"
+      env_vars = {
+        DYNAMODB_TABLE_NAME = module.dynamodb.table_name
+        S3_BUCKET_NAME      = module.s3_website.bucket_id
       }
-    ]
-  })
+    }
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_logs_attachment" {
-  role       = aws_iam_role.hello_world_lambda_role.name
-  policy_arn = aws_iam_policy.lambda_logging_policy.arn
-}
+module "api_gateway" {
+  source = "./modules/api_gateway"
 
-resource "aws_lambda_function" "hello_world_lambda" {
-  function_name = "${var.user_prefix}-hello-world"
-  role          = aws_iam_role.hello_world_lambda_role.arn
+  prefix      = var.user_prefix
+  environment = var.environment
 
-  filename         = data.archive_file.hello_world_zip.output_path
-  handler          = "lambda_function.lambda_handler" # filename.function_name
-  runtime          = "python3.9"
-  source_code_hash = data.archive_file.hello_world_zip.output_base64sha256
-}
-
-resource "aws_apigatewayv2_api" "main_api" {
-  name          = "${var.user_prefix}-api"
-  protocol_type = "HTTP"
-}
-
-resource "aws_apigatewayv2_integration" "lambda_integration" {
-  api_id                 = aws_apigatewayv2_api.main_api.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.hello_world_lambda.invoke_arn
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_route" "get_root" {
-  api_id    = aws_apigatewayv2_api.main_api.id
-  route_key = "GET /"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
-}
-
-resource "aws_apigatewayv2_deployment" "main_deployment" {
-  api_id = aws_apigatewayv2_api.main_api.id
-
-  lifecycle {
-    create_before_destroy = true
+  integrations_config = {
+    register_user_integration = {
+      lambda_invoke_arn = module.lambda.lambda_invoke_arns["register_user"]
+    },
+    verify_user_integration = {
+      lambda_invoke_arn = module.lambda.lambda_invoke_arns["verify_user"]
+    }
   }
 
-  depends_on = [
-    aws_apigatewayv2_route.get_root,
-  ]
-}
+  routes_config = {
+    register_user_route = {
+      route_key       = "PUT /register"
+      integration_key = "register_user_integration"
+      lambda_name     = "register_user"
+    },
+    verify_user_route = {
+      route_key       = "GET /verify"
+      integration_key = "verify_user_integration"
+      lambda_name     = "verify_user"
+    }
+  }
 
-resource "aws_apigatewayv2_stage" "default" {
-  api_id        = aws_apigatewayv2_api.main_api.id
-  name          = "$default"
-  deployment_id = aws_apigatewayv2_deployment.main_deployment.id
-}
-
-resource "aws_lambda_permission" "api_gateway_permission" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.hello_world_lambda.function_name
-  principal     = "apigateway.amazonaws.com"
-
-  source_arn = "${aws_apigatewayv2_api.main_api.execution_arn}/*/${aws_apigatewayv2_route.get_root.route_key}"
+  lambda_function_names = module.lambda.lambda_function_names
 }

@@ -1,0 +1,100 @@
+name: Deploy Infra
+
+on:
+  workflow_dispatch
+
+env:
+  AWS_REGION: ap-south-1
+  IAM_ROLE: arn:aws:iam::160071257600:role/mani-iac-lab-github-actions-role
+  
+  TF_VAR_user_prefix: "mani-iac-milestone" 
+  TF_VAR_environment: "dev" 
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write 
+      contents: read  
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4 
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4 
+        with:
+          role-session-name: GitHubActionsSession
+          role-to-assume: ${{ env.IAM_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS Identity (Optional - for debugging)
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check
+        continue-on-error: true 
+
+      - name: Setup TFLint
+        id: tflint_setup
+        uses: terraform-linters/setup-tflint@v3
+        with:
+          tflint_version: v0.48.0
+          github_token: ${{ github.token }}
+      - name: Run TFLint Init
+        run: tflint --init
+      - name: Run TFLint
+        run: tflint
+
+      - name: Run Checkov Security Scan
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform 
+          soft_fail: true 
+
+      - name: Terraform Init (Configure Remote State)
+        id: init
+        run: terraform init \
+          -backend-config="bucket=${{ env.TF_VAR_user_prefix }}-tf-state-${{ secrets.AWS_ACCOUNT_ID }}" \
+          -backend-config="key=iac-milestone/terraform.tfstate" \
+          -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -var-file="dev.tfvars" -out=tfplan -lock=true
+        env:
+          TF_COMMAND_OPTIONS: "-lock-timeout=300s" 
+
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply -auto-approve tfplan 
+        timeout-minutes: 30
+        env:
+          TF_COMMAND_OPTIONS: "-lock-timeout=300s"
+
+      - name: Run Automated Tests
+        id: tests
+        if: success()
+        run: |
+          echo "Setting up Python environment for tests..."
+          python3 -m venv venv_test
+          source venv_test/bin/activate
+          
+          echo "Installing Python test dependencies..."
+          pip install requests
+          
+          echo "Running automated tests (tests/milestone2_tests.py)..."
+          python3 tests/milestone2_tests.py
+        working-directory: .
