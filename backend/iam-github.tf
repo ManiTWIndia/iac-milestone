@@ -87,25 +87,6 @@ resource "aws_iam_policy" "github_actions_policy" {
   })
 }
 
-resource "aws_iam_role_policy" "github_actions_iam_access" {
-  name = "GitHubActions_IAM_Access"
-  role = aws_iam_role.github_actions_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "iam:GetPolicy",
-          "iam:GetPolicyVersion"
-        ]
-        Resource = "arn:aws:iam::160071257600:policy/mani-iac-milestone-*"
-      }
-    ]
-  })
-}
-
 resource "aws_iam_role_policy_attachment" "github_actions_attach" {
   role       = aws_iam_role.github_actions_role.name
   policy_arn = aws_iam_policy.github_actions_policy.arn

@@ -39,7 +39,7 @@ jobs:
 
       - name: Terraform Destroy
         id: destroy
-        run: terraform destroy -auto-approve"
+        run: terraform destroy -auto-approve
         timeout-minutes: 30 
         env:
           TF_COMMAND_OPTIONS: "-lock-timeout=300s"
