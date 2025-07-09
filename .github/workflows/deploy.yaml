@@ -5,7 +5,7 @@ on:
 
 env:
   AWS_REGION: ap-south-1
-  IAM_ROLE: arn:aws:iam::160071257600:role/mani-iac-lab-github-actions-role
+  IAM_ROLE: arn:aws:iam::160071257600:role/mani-iac-milestone-github-actions-role
   
   TF_VAR_user_prefix: "mani-iac-milestone" 
   TF_VAR_environment: "dev" 
@@ -35,7 +35,6 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check
@@ -63,7 +62,7 @@ jobs:
       - name: Terraform Init (Configure Remote State)
         id: init
         run: terraform init \
-          -backend-config="bucket=${{ env.TF_VAR_user_prefix }}-tf-state-${{ secrets.AWS_ACCOUNT_ID }}" \
+          -backend-config="bucket=${{ env.TF_VAR_user_prefix }}-tfstate" \
           -backend-config="key=iac-milestone/terraform.tfstate" \
           -backend-config="region=${{ env.AWS_REGION }}"
 
@@ -95,6 +94,6 @@ jobs:
           echo "Installing Python test dependencies..."
           pip install requests
           
-          echo "Running automated tests (tests/milestone2_tests.py)..."
-          python3 tests/milestone2_tests.py
+          echo "Running automated tests (tests/test_milestone2.py)..."
+          python3 tests/test_milestone2.py
         working-directory: .
