@@ -36,8 +36,8 @@ jobs:
       - name: Terraform Init (Configure Remote State)
         id: init
         run: terraform init \
-          -backend-config="bucket=${{ env.TF_VAR_user_prefix }}-tf-state-${{ secrets.AWS_ACCOUNT_ID }}" \
-          -backend-config="key=mani-iac-milestone/terraform.tfstate" \
+          -backend-config="bucket=${{ env.TF_VAR_user_prefix }}-tfstate" \
+          -backend-config="key=terraform.tfstate" \
           -backend-config="region=${{ env.AWS_REGION }}"
 
       - name: Terraform Destroy
